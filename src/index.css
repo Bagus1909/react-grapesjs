@@ -13,10 +13,21 @@
 }
 
 .gjs-block {
-  width: auto;
-  height: 80px;
-  min-height: 20px;
+  width: 80px; /* Atur lebar sesuai kebutuhan */
+  height: 80px; /* Atur tinggi biar konsisten */
+  margin: 5px auto; /* Tengah */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+
+/* Container block scroll kalau isinya banyak */
+.gjs-block__media svg{
+width: 50%;
+height: auto;
+}
+
+
 
 .panel__top {
   padding: 0;
