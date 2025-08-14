@@ -11,3 +11,10 @@
   height: 100%;
   padding: 10px;
 }
+
+.gjs-block {
+  width: auto;
+  height: 80px;
+  min-height: 20px;
+}
+
