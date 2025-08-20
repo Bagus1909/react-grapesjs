@@ -4,7 +4,7 @@ import grapesjs from "grapesjs";
 import GjsEditor from "@grapesjs/react";
 import "grapesjs/dist/css/grapes.min.css";
 import basicBlocks from "grapesjs-blocks-basic";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function DefaultEditor() {
   const [variables, setVariables] = useState<any>({
@@ -14,10 +14,18 @@ export default function DefaultEditor() {
 
   const [editorInstance, setEditorInstance] = useState<any>(null);
 
+  // Update variabel reference di editor setiap kali variabel berubah
+  useEffect(() => {
+    if (editorInstance && editorInstance.currentComponent) {
+      editorInstance.currentComponent.variables = variables;
+    }
+  }, [variables, editorInstance]);
+
   const onEditor = (editor: any) => {
     console.log("Editor loaded", { editor });
 
-    let isPreview = false;
+    // Store reference ke component untuk akses variabel terbaru
+    editor.currentComponent = { variables: variables };
 
     // Tambah semua block forms
     editor.BlockManager.add("form", {
@@ -69,43 +77,61 @@ export default function DefaultEditor() {
                 </div>`,
     });
 
-    // Preview
+    // Variable block - untuk memasukkan variabel ke dalam konten
+    editor.BlockManager.add("variable-block", {
+      label: "Variable Text",
+      category: "Custom",
+      content: `<div style="padding: 10px; border: 1px dashed #ccc;">
+                  Click "Add Variable" button to insert variables
+                </div>`,
+    });
+
+    // Command untuk preview dengan variables yang diperbaiki
     editor.Commands.add("preview-with-vars", {
       run: (ed: any) => {
-        ed.runCommand("preview");
-        const iframe = ed.Canvas.getFrameEl();
+        // Ambil HTML dan CSS dari editor
+        let html = ed.getHtml();
+        let css = ed.getCss();
 
-        if (!isPreview) {
-          // masuk preview mode
-          ed.runCommand("preview");
+        // Replace variabel dengan nilai sebenarnya - akses langsung dari state terbaru
+        html = html.replace(/{{(.*?)}}/g, (_: any, key: any) => {
+          // Akses variabel terbaru dari referensi yang disimpan
+          const currentVars = ed.currentComponent.variables;
+          return currentVars[key.trim()] || `{{${key}}}`;
+        });
 
-          let html = ed.getHtml();
+        // Buat window baru untuk preview
+        const previewWindow = window.open("", "_blank", "width=800,height=600");
 
-          // replace {{var}}
-          html = html.replace(/{{(.*?)}}/g, (_: any, key: any) => {
-            return variables[key.trim()] || `{{${key}}}`;
-          });
-
-          // inject ke iframe preview
-          iframe.contentDocument.body.innerHTML = html;
-          iframe.contentDocument.body.style.backgroundColor = "#fff";
-
-          isPreview = true;
-        } else {
-          // keluar preview mode
-          ed.stopCommand("preview");
-          isPreview = false;
+        if (previewWindow) {
+          previewWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>Preview</title>
+              <style>
+                body { margin: 0; padding: 20px; font-family: Arial, sans-serif; }
+                ${css}
+                .row { display: flex; flex-wrap: wrap; }
+                .cell { flex: 1; padding: 10px; min-height: 50px; }
+              </style>
+            </head>
+            <body>
+              ${html}
+              <div style="position: fixed; top: 10px; right: 10px; z-index: 9999;">
+                <button onclick="window.close()" style="padding: 10px; background: #ff4444; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                  Close Preview
+                </button>
+              </div>
+            </body>
+            </html>
+          `);
+          previewWindow.document.close();
         }
       },
     });
 
-    // Ganti tombol default preview pakai command kita
-    // const pn = editor.Panels;
-    // const btn = pn.getButton("options", "preview");
-    // if (btn) {
-    //   btn.set("command", "preview-with-vars");
-    // }
-
+    // Tambah tombol preview custom
     editor.Panels.addButton("options", {
       id: "preview-with-vars-btn",
       className: "fa fa-eye",
@@ -113,64 +139,202 @@ export default function DefaultEditor() {
       attributes: { title: "Preview with Variables" },
     });
 
+    // Command untuk mengimpor variabel ke dalam teks yang dipilih
+    editor.Commands.add("add-variable", {
+      run: (ed: any) => {
+        const selected = ed.getSelected();
+        if (selected) {
+          // Jika ada komponen yang dipilih, tambahkan variabel
+          const currentContent =
+            selected.get("content") || selected.getInnerHTML() || "";
+          const newContent = currentContent + " {{client_company}}";
+          selected.set("content", newContent);
+        } else {
+          // Jika tidak ada yang dipilih, tambahkan block variabel baru
+          ed.BlockManager.add("temp-var", {
+            content: "<span>{{client_company}}</span>",
+          });
+
+          const component = ed.addComponents(
+            "<span>{{client_company}}</span>"
+          )[0];
+          ed.select(component);
+        }
+      },
+    });
+
+    // Tambah tombol untuk menambahkan variabel
+    editor.Panels.addButton("options", {
+      id: "add-variable-btn",
+      className: "fa fa-plus",
+      command: "add-variable",
+      attributes: { title: "Add Variable" },
+    });
+
     setEditorInstance(editor);
   };
 
   const getFinalHTML = () => {
     if (!editorInstance) return;
-    let html = editorInstance.getHtml();
 
-    // replace {{var}} dengan nilai
+    let html = editorInstance.getHtml();
+    let css = editorInstance.getCss();
+
+    // Replace {{var}} dengan nilai
     html = html.replace(/{{(.*?)}}/g, (_: any, key: any) => {
       return variables[key.trim()] || `{{${key}}}`;
     });
 
-    console.log("Final HTML:", html);
-    alert(html);
+    const finalHTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Final Document</title>
+  <style>
+    body { margin: 0; padding: 20px; font-family: Arial, sans-serif; }
+    ${css}
+    .row { display: flex; flex-wrap: wrap; }
+    .cell { flex: 1; padding: 10px; min-height: 50px; }
+  </style>
+</head>
+<body>
+  ${html}
+</body>
+</html>`;
+
+    console.log("Final HTML:", finalHTML);
+
+    // Buat blob dan download
+    const blob = new Blob([finalHTML], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "document.html";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const addNewVariable = () => {
+    const varName = prompt("Enter variable name (without {{}}):");
+    const varValue = prompt("Enter variable value:");
+
+    if (varName && varValue) {
+      setVariables({
+        ...variables,
+        [varName.trim()]: varValue,
+      });
+    }
   };
 
   return (
-    <div style={{ height: "100vh" }}>
-      <GjsEditor
-        grapesjs={grapesjs}
-        options={{
-          height: "100%",
-          storageManager: false,
-          fromElement: true,
-          plugins: [basicBlocks],
-          pluginsOpts: {
-            "grapesjs-blocks-basic": {
-              flexGrid: true,
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1 }}>
+        <GjsEditor
+          grapesjs={grapesjs}
+          options={{
+            height: "100%",
+            storageManager: false,
+            fromElement: true,
+            plugins: [basicBlocks],
+            pluginsOpts: {
+              "grapesjs-blocks-basic": {
+                flexGrid: true,
+              },
             },
-          },
+            canvas: {
+              styles: [
+                "body { margin: 0; padding: 10px; }",
+                ".row { display: flex; flex-wrap: wrap; }",
+                ".cell { flex: 1; padding: 10px; min-height: 50px; border: 1px dashed #ccc; }",
+              ],
+            },
+          }}
+          onEditor={onEditor}
+        />
+      </div>
+
+      <div
+        style={{
+          padding: "15px",
+          background: "#f8f9fa",
+          borderTop: "1px solid #ddd",
         }}
-        onEditor={onEditor}
-      />
-      <div style={{ padding: "10px", background: "#f4f4f4" }}>
-        <h3>Set Variables</h3>
-        <label>
-          Client Company:
-          <input
-            type="text"
-            value={variables.client_company}
-            onChange={(e) =>
-              setVariables({ ...variables, client_company: e.target.value })
-            }
-          />
-        </label>
-        <br />
-        <label>
-          User Company:
-          <input
-            type="text"
-            value={variables.user_company}
-            onChange={(e) =>
-              setVariables({ ...variables, user_company: e.target.value })
-            }
-          />
-        </label>
-        <br />
-        <button onClick={getFinalHTML}>Export HTML with Variables</button>
+      >
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "15px",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <h4 style={{ margin: "0 0 10px 0" }}>Variables:</h4>
+            {Object.entries(variables).map(([key, value]) => (
+              <div key={key} style={{ marginBottom: "8px" }}>
+                <label
+                  style={{
+                    display: "inline-block",
+                    width: "120px",
+                    fontSize: "14px",
+                  }}
+                >
+                  {key}:
+                </label>
+                <input
+                  type="text"
+                  value={value as string}
+                  onChange={(e) =>
+                    setVariables({ ...variables, [key]: e.target.value })
+                  }
+                  style={{
+                    padding: "4px 8px",
+                    marginRight: "10px",
+                    minWidth: "200px",
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <button
+              onClick={addNewVariable}
+              style={{
+                padding: "8px 16px",
+                background: "#007bff",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              Add Variable
+            </button>
+            <button
+              onClick={getFinalHTML}
+              style={{
+                padding: "8px 16px",
+                background: "#28a745",
+                color: "white",
+                border: "none",
+                borderRadius: "4px",
+                cursor: "pointer",
+              }}
+            >
+              Download HTML
+            </button>
+          </div>
+        </div>
+
+        <div style={{ marginTop: "10px", fontSize: "12px", color: "#666" }}>
+          <strong>Tips:</strong>
+          • Use "Variable Text" block to add variables to your content
+          <br />• Or manually type {"{{`{variable_name}`}}"} in any text
+          <br />
+          • Click "Preview with Variables" to see final result
+          <br />• Available variables: {Object.keys(variables).join(", ")}
+        </div>
       </div>
     </div>
   );
